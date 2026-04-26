@@ -1,6 +1,7 @@
 Flask
 Flask-SQLAlchemy
 Werkzeug
+flask-cors
 eth-keys
 eth-utils
 eth-hash[pycryptodome]

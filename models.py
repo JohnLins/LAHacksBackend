@@ -19,10 +19,16 @@ class User(db.Model):
 class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     description = db.Column(db.Text, nullable=False)
-    status = db.Column(db.String(20), default='open')  # open, accepted, completed
+    # open -> claimed -> submitted
+    # (legacy endpoints may still use accepted/completed)
+    status = db.Column(db.String(20), default='open')
     compensation = db.Column(db.Float, default=0.0)
     assigned_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     assigned_user = db.relationship('User', backref='tasks')
+    requester_address = db.Column(db.String(200), nullable=True)
+    response_text = db.Column(db.Text, nullable=True)
+    response_submitted_at = db.Column(db.DateTime, nullable=True)
+    response_delivered_at = db.Column(db.DateTime, nullable=True)
 
 class WorldIDNullifier(db.Model):
     id = db.Column(db.Integer, primary_key=True)

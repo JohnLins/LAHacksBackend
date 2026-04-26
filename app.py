@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from flask import Flask
+from flask_cors import CORS
 import os
 
 try:
@@ -20,6 +21,12 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///marketplace.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Allow calling the API from any origin (browser CORS).
+# Note: With session cookies, browsers require SameSite=None; Secure.
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True
 
 db.init_app(app)
 

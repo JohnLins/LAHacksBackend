@@ -27,12 +27,12 @@
 
 ### Create Task
 - **POST** `/api/tasks/`
-- **Body:** `{ "description": "string", "compensation": float }`
+- **Body:** `{ "description": "string", "compensation": float, "requester_address": "string|null" }`
 - **Response:** `{ "message": "Task created", "task_id": int }`
 
 ### List All Tasks
 - **GET** `/api/tasks/`
-- **Response:** `[{ "id": int, "description": "string", "status": "open|accepted|completed", "compensation": float, "assigned_user": "string|null" }]`
+- **Response:** `[{ "id": int, "description": "string", "status": "open|claimed|submitted|accepted|completed", "compensation": float, "assigned_user": "string|null", "response_text": "string|null" }]`
 
 ### Accept Task
 - **POST** `/api/tasks/<task_id>/accept`
@@ -40,10 +40,23 @@
 - **Response:** `{ "message": "Task accepted" }` or error
 - **Notes:** User must be World ID verified
 
+### Claim Task
+- **POST** `/api/tasks/<task_id>/claim`
+- **Auth required** (session cookie)
+- **Response:** `{ "message": "Task claimed" }` or error
+- **Notes:** User must be World ID verified
+
 ### Complete Task
 - **POST** `/api/tasks/<task_id>/complete`
 - **Auth required** (session cookie)
 - **Response:** `{ "message": "Task completed, balance updated" }` or error
+
+### Submit Task Response (text)
+- **POST** `/api/tasks/<task_id>/submit`
+- **Auth required** (session cookie)
+- **Body:** `{ "response_text": "string" }`
+- **Response:** `{ "message": "Task submitted", "delivered_to_requester": bool, "delivery_error": "string|null" }`
+- **Notes:** If the server has `AGENT_WEBHOOK_URL` configured and the task was created with `requester_address`, the backend will POST the submission to the agent so the agent can message the original requester.
 
 ---
 
