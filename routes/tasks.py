@@ -120,6 +120,25 @@ def pending_responses():
     ])
 
 
+@tasks_bp.route('/responses/pending-all', methods=['GET'])
+def pending_responses_all():
+    tasks = Task.query.filter_by(
+        status='submitted',
+        response_delivered_at=None,
+    ).all()
+
+    return jsonify([
+        {
+            'task_id': t.id,
+            'requester_address': t.requester_address,
+            'response_text': t.response_text,
+            'response_submitted_at': int(t.response_submitted_at.timestamp()) if t.response_submitted_at else None,
+        }
+        for t in tasks
+        if t.requester_address and t.response_text
+    ])
+
+
 @tasks_bp.route('/<int:task_id>/responses/delivered', methods=['POST'])
 def mark_response_delivered(task_id):
     task = Task.query.get(task_id)
