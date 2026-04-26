@@ -177,7 +177,11 @@ def verify():
     world_request = urllib.request.Request(
         verify_url,
         data=encoded_body,
-        headers={'Content-Type': 'application/json'},
+        headers={
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'HumanAgent/1.0 (+https://lahacksbackend-production.up.railway.app)',
+        },
         method='POST',
     )
 
