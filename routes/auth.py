@@ -35,6 +35,10 @@ def me():
     if not user_id:
         return jsonify({'error': 'Not logged in'}), 401
     user = User.query.get(user_id)
+    if not user:
+        # Session can become stale if the DB is reset or the user row is deleted.
+        session.pop('user_id', None)
+        return jsonify({'error': 'Not logged in'}), 401
     return jsonify({
         'username': user.username,
         'world_id_verified': user.world_id_verified,
