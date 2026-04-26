@@ -9,12 +9,25 @@ class User(db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     world_id_verified = db.Column(db.Boolean, default=False)
     fake_balance = db.Column(db.Float, default=0.0)
+    account_modes = db.Column(db.String(80), default='')
+    task_topics = db.Column(db.Text, default='')
+    onboarding_completed = db.Column(db.Boolean, default=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    def to_dict(self):
+        return {
+            'username': self.username,
+            'world_id_verified': self.world_id_verified,
+            'fake_balance': self.fake_balance,
+            'account_modes': [mode for mode in (self.account_modes or '').split(',') if mode],
+            'task_topics': [topic for topic in (self.task_topics or '').split(',') if topic],
+            'onboarding_completed': self.onboarding_completed,
+        }
 
 class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
