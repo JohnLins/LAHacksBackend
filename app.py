@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from flask import Flask
+import logging
+import time
+from uuid import uuid4
+
+from flask import Flask, request, g
 from flask_cors import CORS
 import os
 
@@ -27,6 +31,39 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = True
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
+@app.before_request
+def _request_start():
+    g.request_id = request.headers.get("X-Request-ID", uuid4().hex[:12])
+    g.t0 = time.time()
+    app.logger.info(
+        "request start rid=%s method=%s path=%s remote=%s ua=%s",
+        g.request_id,
+        request.method,
+        request.path,
+        request.headers.get("X-Forwarded-For", request.remote_addr),
+        (request.headers.get("User-Agent") or "")[:120],
+    )
+
+
+@app.after_request
+def _request_end(response):
+    rid = getattr(g, "request_id", "-")
+    t0 = getattr(g, "t0", None)
+    elapsed_ms = int((time.time() - t0) * 1000) if t0 else -1
+    app.logger.info(
+        "request end rid=%s status=%s elapsed_ms=%s",
+        rid,
+        response.status_code,
+        elapsed_ms,
+    )
+    response.headers["X-Request-ID"] = rid
+    return response
 
 db.init_app(app)
 

@@ -7,7 +7,7 @@ import urllib.request
 
 from eth_keys import keys
 from eth_utils import keccak
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app
 from models import User, WorldIDNullifier
 from db import db
 
@@ -76,6 +76,15 @@ def _sign_request(signing_key_hex, action, ttl_seconds=300):
 
 @world_bp.route('/config', methods=['GET'])
 def config():
+    current_app.logger.info(
+        "world.config configured=%s env=%s app_id_set=%s rp_id_set=%s signing_key_set=%s action=%s",
+        _world_configured(),
+        WORLD_ID_ENVIRONMENT,
+        bool(WORLD_ID_APP_ID),
+        bool(WORLD_ID_RP_ID),
+        bool(WORLD_ID_SIGNING_KEY),
+        WORLD_ID_ACTION,
+    )
     return jsonify({
         'configured': _world_configured(),
         'app_id': WORLD_ID_APP_ID,
@@ -87,22 +96,36 @@ def config():
 
 @world_bp.route('/rp-signature', methods=['POST'])
 def rp_signature():
+    t0 = time.time()
     user = _current_user()
     if not user:
+        current_app.logger.info("world.rp_signature not_logged_in")
         return jsonify({'error': 'Not logged in'}), 401
     if not _world_configured():
+        current_app.logger.warning("world.rp_signature not_configured")
         return jsonify({'error': 'World ID is not configured on the server'}), 503
 
     data = request.get_json(silent=True) or {}
     action = data.get('action', WORLD_ID_ACTION)
     if action != WORLD_ID_ACTION:
+        current_app.logger.info(
+            "world.rp_signature invalid_action provided=%s expected=%s",
+            action,
+            WORLD_ID_ACTION,
+        )
         return jsonify({'error': 'Invalid World ID action'}), 400
 
     try:
         signature = _sign_request(WORLD_ID_SIGNING_KEY, action)
-    except ValueError:
+    except ValueError as exc:
+        current_app.logger.exception("world.rp_signature invalid_signing_key exc=%s", exc)
         return jsonify({'error': 'Invalid World ID signing key'}), 500
 
+    current_app.logger.info(
+        "world.rp_signature ok user_id=%s elapsed_ms=%s",
+        user.id,
+        int((time.time() - t0) * 1000),
+    )
     return jsonify({
         'app_id': WORLD_ID_APP_ID,
         'rp_id': WORLD_ID_RP_ID,
@@ -114,24 +137,42 @@ def rp_signature():
 
 @world_bp.route('/verify', methods=['POST'])
 def verify():
+    t0 = time.time()
     user = _current_user()
     if not user:
+        current_app.logger.info("world.verify not_logged_in")
         return jsonify({'error': 'Not logged in'}), 401
     if not _world_configured():
+        current_app.logger.warning("world.verify not_configured user_id=%s", user.id)
         return jsonify({'error': 'World ID is not configured on the server'}), 503
 
     data = request.get_json(silent=True) or {}
     idkit_response = data.get('idkitResponse')
     if not idkit_response:
+        current_app.logger.info("world.verify missing_idkit_response user_id=%s", user.id)
         return jsonify({'error': 'Missing IDKit response'}), 400
     if idkit_response.get('action') != WORLD_ID_ACTION:
+        current_app.logger.info(
+            "world.verify invalid_action user_id=%s provided=%s expected=%s",
+            user.id,
+            idkit_response.get('action'),
+            WORLD_ID_ACTION,
+        )
         return jsonify({'error': 'Invalid World ID action'}), 400
 
     base_url = WORLD_ID_VERIFY_BASE_URLS.get(WORLD_ID_ENVIRONMENT)
     if not base_url:
+        current_app.logger.error("world.verify invalid_environment env=%s", WORLD_ID_ENVIRONMENT)
         return jsonify({'error': 'Invalid World ID environment'}), 500
 
     verify_url = f'{base_url}/api/v4/verify/{WORLD_ID_RP_ID}'
+    current_app.logger.info(
+        "world.verify upstream_request user_id=%s env=%s url=%s payload_keys=%s",
+        user.id,
+        WORLD_ID_ENVIRONMENT,
+        verify_url,
+        sorted(list(idkit_response.keys()))[:25],
+    )
     encoded_body = json.dumps(idkit_response).encode('utf-8')
     world_request = urllib.request.Request(
         verify_url,
@@ -145,11 +186,27 @@ def verify():
             verification = json.loads(response.read().decode('utf-8'))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode('utf-8')
+        current_app.logger.warning(
+            "world.verify upstream_http_error user_id=%s status=%s detail_preview=%s",
+            user.id,
+            exc.code,
+            (detail or "")[:500],
+        )
         return jsonify({'error': 'World ID verification failed', 'detail': detail}), 400
     except urllib.error.URLError as exc:
+        current_app.logger.warning(
+            "world.verify upstream_unreachable user_id=%s detail=%s",
+            user.id,
+            str(exc),
+        )
         return jsonify({'error': 'Could not reach World ID verification API', 'detail': str(exc)}), 502
 
     if not verification.get('success'):
+        current_app.logger.info(
+            "world.verify upstream_not_success user_id=%s keys=%s",
+            user.id,
+            sorted(list(verification.keys()))[:25],
+        )
         return jsonify({'error': 'World ID verification failed', 'detail': verification}), 400
 
     nullifier = verification.get('nullifier')
@@ -159,6 +216,7 @@ def verify():
                 nullifier = result['nullifier']
                 break
     if not nullifier:
+        current_app.logger.info("world.verify missing_nullifier user_id=%s", user.id)
         return jsonify({'error': 'World ID response did not include a nullifier'}), 400
 
     existing = WorldIDNullifier.query.filter_by(
@@ -166,6 +224,11 @@ def verify():
         action=WORLD_ID_ACTION,
     ).first()
     if existing and existing.user_id != user.id:
+        current_app.logger.info(
+            "world.verify nullifier_reused user_id=%s existing_user_id=%s",
+            user.id,
+            existing.user_id,
+        )
         return jsonify({'error': 'This World ID proof was already used'}), 409
     if not existing:
         db.session.add(WorldIDNullifier(
@@ -176,4 +239,9 @@ def verify():
 
     user.world_id_verified = True
     db.session.commit()
+    current_app.logger.info(
+        "world.verify ok user_id=%s elapsed_ms=%s",
+        user.id,
+        int((time.time() - t0) * 1000),
+    )
     return jsonify({'message': 'World ID verified', 'verification': verification})
